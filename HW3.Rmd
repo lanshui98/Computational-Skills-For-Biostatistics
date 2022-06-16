@@ -1,0 +1,259 @@
+---
+title: "BIOST 561 Homework 3"
+author: "Lan Shui"
+date: "5/9/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+### Setting up the packages
+library(knitr)
+library(tidyverse)
+library(rigr)
+library(ggplot2)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Responses 
+## Problem 1
+## -1.1
+```{r, include=T}
+# define the generic function
+bootstrap <- function(object, ...) UseMethod("bootstrap")
+
+# define the stratified class
+stratified <- function(y, strata) {
+  if (!is.numeric(y)) stop("'y' must be numeric")
+  if (!is.factor(strata)) stop("'strata' must be a factor")
+  if (length(y) != length(strata)) stop("'y' and 'strata' must have equal length")
+  
+  structure(list(y=y, strata=strata), class = "stratified") #Another way of constructing a class
+}
+```
+
+```{r, include=T, fig.cap="Histograms of three statistics for bootstrapped numeric data"}
+# construct bootstrap function for numeric class
+bootstrap.numeric <- function(object, nboot, stat,...){  
+  if ( !is( object, "numeric") ) 
+    stop( "bootstrap.numeric requires an object of class 'numeric'" )
+  if ( nboot < 1 | is.infinite(nboot) ) 
+    stop( "'nboot' should be a positive integer" )
+  
+  n <- length(object)
+  
+  boot_samp <- replicate(nboot, sample(object, size=n, replace=TRUE))
+  
+  colnames(boot_samp) <- paste("b", 1:nboot, sep="")
+  
+  boot_stat <- apply(boot_samp,2,stat,...)
+  
+  return(boot_stat)
+}
+
+# construct a statistic function which returns standard deviation
+std<-function(x){
+  sqrt(var(x))
+}
+
+# plot the histograms for the statistics
+x <- rnorm(5)
+par(mfrow=c(1,3))
+hist(bootstrap(x, 100, mean),main ="Bootstrap mean")
+hist(bootstrap(x, 100, median),main ="Bootstrap median")
+hist(bootstrap(x, 100, std),main ="Bootstrap standard deviation")
+```
+
+```{r, include=T, fig.cap="Histograms of mean for bootstrapped stratified data"}
+# construct bootstrap function for stratified class
+bootstrap.stratified <- function(object, nboot, stat,...){  
+  if ( !is( object, "stratified") ) 
+    stop( "bootstrap.stratified requires an object of class 'stratified'" )
+  if ( nboot < 1 | is.infinite(nboot) ) 
+    stop( "'nboot' should be a positive integer" )
+  
+  boot_stat<-tapply(object$y, object$strata, bootstrap.numeric, nboot, stat,...)
+  return(boot_stat)
+}
+
+str <- stratified(y = c(rnorm(5), rnorm(5, 3)), 
+                          strata = factor(rep(c("a","b"), each=5)) ) 
+str_bts_mean <- bootstrap(str, 20, mean)
+str_bts_median <- bootstrap(str, 20, median)
+str_bts_std <- bootstrap(str, 20, std)
+
+with(str_bts_mean,{par(mfrow=c(1,2))
+  hist(a,main="Bootstrap mean")
+  hist(b,main="Bootstrap mean")})
+```
+
+```{r, include=T, fig.cap="Histograms of median for bootstrapped stratified data"}
+with(str_bts_median,{par(mfrow=c(1,2))
+  hist(a,main="Bootstrap median")
+  hist(b,main="Bootstrap median")})
+```
+
+```{r, include=T, fig.cap="Histograms of standard deviation for bootstrapped stratified data"}
+with(str_bts_std,{par(mfrow=c(1,2))
+  hist(a,main="Bootstrap standard deviation")
+  hist(b,main="Bootstrap standard deviation")})
+```
+
+## -1.2
+```{r, include=T}
+# moment function
+moment <- function(x, k){
+(1/length(x))*sum((x-mean(x))^k)
+}
+
+# test
+x <- rnorm(5)
+bootstrap(x, 10, moment, k=4)
+
+str <- stratified(y = c(rnorm(5), rnorm(5, 3)), 
+                          strata = factor(rep(c("a","b"), each=5)) ) 
+bootstrap(str, 10, moment, k=4)
+```
+
+## Problem 2
+```{r, include=T}
+set.seed(1254)
+df <- purrr::map(
+1:5, # we'll generate five variables
+~sample( # generate random values
+sample(2:5,1), # a random number categories between 2:5
+100, # number of draws
+rep = TRUE # sample with replications
+)
+)
+# letters instead of numbers to denote categories
+df <- purrr::map(df, ~LETTERS[.x])
+df <- data.frame(df) # transform list to data frame
+names(df) <- paste("v", 1:5, sep="")
+# generate a response variable from a normal linear model
+df$v6 <- with(df, rnorm(nrow(df), 2*(v1=="B") - 1*(v5=="B")))
+head(df)
+# to fit a linear model, at this point, we would typically use
+# lm(v6 ~ v1 + v2 + v5, data=df)
+```
+
+```{r, include=T}
+# Compute Adjusted R-squared for all possible subsets
+# (which you could use to select the "best" model)
+summary(lm( v6 ~ v1 + v2 + v5 , data=df))$adj.r.squared
+summary(lm( v6 ~ v2 + v5 , data=df))$adj.r.squared
+summary(lm( v6 ~ v1 + v5 , data=df))$adj.r.squared # this has the largest Adjusted R-squared
+summary(lm( v6 ~ v1 + v2 , data=df))$adj.r.squared
+summary(lm( v6 ~ v5 , data=df))$adj.r.squared
+summary(lm( v6 ~ v2 , data=df))$adj.r.squared
+summary(lm( v6 ~ v1 , data=df))$adj.r.squared
+summary(lm( v6 ~ 1 , data=df))$adj.r.squared
+```
+
+```{r, include=T}
+# Alternative method
+# Define the maximal (largest) model we are willing to consider
+model <- v6 ~ v1 + v2 + v5
+class(model)
+model <- deparse(model)
+model <- strsplit(model, " *~ *")
+resp_var <- model[[1]][1]
+lin_pred <- model[[1]][2]
+indep_vars <- strsplit(lin_pred, " *\\+ *")[[1]]
+TF_factors <- purrr::map(seq_along(indep_vars), ~c(TRUE,FALSE))
+logical_subsets <- as.matrix(expand.grid(TF_factors))
+get_linpred <- function(x) paste(indep_vars[x], collapse=" + ")
+lin_preds <- apply(logical_subsets, 1, get_linpred)
+# Alternatively: lin_preds <- purrr::map_chr(1:nrow(logical_subsets),
+# ~get_linpred(logical_subsets[.x,]))
+lin_preds[lin_preds == ""] <- "1"
+subset_models <- paste(resp_var, "~", lin_preds)
+purrr::map_dbl(subset_models,
+~summary(lm(eval(parse(text=.x)), df))$adj.r.squared)
+```
+
+## Problem 3
+## -3.1
+```{r, include=T}
+# use map_dbl() to replace the for loop
+m <- 1000
+n <- 50
+X <- matrix(rnorm(m * n, mean = 10, sd = 3), nrow = m)
+grp <- rep(1:2, each = n / 2)
+
+# for loop
+# for (i in 1:m) {
+# t.test(X[i, grp == 1], X[i, grp == 2])$statistic
+# }
+
+result1 <- purrr::map_dbl(1:m,~t.test(X[eval(parse(text=.x)),grp == 1]
+                           ,X[eval(parse(text=.x)),grp == 2])$statistic)
+head(result1)
+```
+
+## -3.2
+```{r, include=T}
+# Use map_dbl() to apply the function my_ttest to X
+my_ttest <- function(x, grp) {
+t_stat <- function(x) {
+m <- mean(x)
+n <- length(x)
+var <- sum((x - m) ^ 2) / (n - 1)
+list(m = m, n = n, var = var)
+}
+g1 <- t_stat(x[grp == 1])
+g2 <- t_stat(x[grp == 2])
+se_total <- sqrt(g1$var / g1$n + g2$var / g2$n)
+(g1$m - g2$m) / se_total
+}
+
+X2<-as.data.frame(t(X))
+result2 <- purrr::map_dbl(as.data.frame(t(X)),my_ttest,grp)
+                          
+head(result2) # which is the same result as -3.1
+```
+
+## -3.3
+```{r, include=T}
+# a vectorized version of the function my_ttest: my_ttest2
+my_ttest2 <- function(X, grp) {
+t_stat <- function(X) {
+M <- rowMeans(X)
+n <- dim(X)[2]
+var <- rowSums((X - M)^2) / (n - 1)
+list(m=M,n=n,var=var)
+}
+G1 <- t_stat(X[,grp == 1])
+G2 <- t_stat(X[,grp == 2])
+se_total <- sqrt(G1$var / G1$n + G2$var / G2$n)
+(G1$m - G2$m) / se_total
+}
+
+# test
+result3<-my_ttest2(X,grp)
+head(result3) # which is the same result as -3.1 & -3.2
+```
+
+## -3.4
+```{r, include=T}
+# Compare the performance of the four approaches and comment on them
+m <- 1000
+n <- 50
+X <- matrix(rnorm(m * n, mean = 10, sd = 3), nrow = m)
+grp <- rep(1:2, each = n / 2)
+
+library(microbenchmark)
+results_bench = microbenchmark(
+  method1 = for (i in 1:m) {
+    t.test(X[i, grp == 1], X[i, grp == 2])$statistic}, 
+  method2 = purrr::map_dbl(1:m,~t.test(X[eval(parse(text=.x)),grp == 1]
+                           ,X[eval(parse(text=.x)),grp == 2])$statistic),
+  method3 = purrr::map_dbl(as.data.frame(t(X)),my_ttest,grp),
+  method4 = my_ttest2(X,grp),
+  times = 20L 
+)
+results_bench
+```
+From the result, we can see method 4 performs the best among all four methods. It meets our expectation since vectorized operations in R could speedup the running time. In addition, implementing a sub part of t.test rather than executing the whole function can speedup the running time.
+
+
+

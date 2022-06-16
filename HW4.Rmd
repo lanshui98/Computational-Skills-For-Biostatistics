@@ -1,0 +1,313 @@
+---
+title: "HW4"
+author: "Lan Shui"
+date: "5/23/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+### Setting up the packages
+library(knitr)
+library(tidyverse)
+library(rigr)
+library(ggplot2)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Responses 
+## Problem 1
+## -1.1
+See appendix
+```{r, include=F}
+sigmoid =  function(x)
+{
+  1/(1+exp(-x))
+}
+
+loss_func = function(y, f_pred)
+{
+  loss = mean(-y*log(f_pred) - (1-y)*log(1-f_pred))
+  return(loss)
+}
+
+############# define the shallow_net class ###########
+shallow_net <- function(p, q) {
+  structure(list(theta_init = replicate(q, 0.1*runif(p+1, -.5, .5)),
+                 beta_init  = 0.1*runif(q+1, -.5, .5)), class = "shallow_net") # constructing the shallow_net
+}
+
+###### construct predict function for shallow_net class ########
+predict.shallow_net <- function(object, X,...){ 
+  if ( !is( object, "shallow_net") ) 
+      stop( "predict.shallow_net requires an object of class 'shallow_net'" )
+  if ( nrow(object$theta_init)!=ncol(X)+1 ) 
+    stop( "'X must have p columns" )
+  theta = object$theta_init
+  beta = object$beta_init
+  
+  n = nrow(X)
+  X_aug = cbind(rep(1,n),X)
+  A = sigmoid(X_aug %*% theta)
+  A_aug = cbind(rep(1,n),A)
+  f_pred = sigmoid(A_aug %*% beta)
+  
+  return(f_pred)
+}
+
+###### construct train function for shallow_net class ######
+train <- function(object, ...) UseMethod("train")
+
+train.shallow_net <- function(object, X, y, learn_rate, n_iter,...){ 
+  if ( !is( object, "shallow_net") ) 
+      stop( "predict.shallow_net requires an object of class 'shallow_net'" )
+  
+  theta_init = object$theta_init
+  beta_init = object$beta_init
+  
+  q = ncol(theta_init)
+  n = nrow(X)
+  p = ncol(X)
+  
+  beta = beta_init
+  theta = theta_init
+  
+  for (it in 1:n_iter)
+  {
+    # Forward pass
+    X_aug = cbind(rep(1,n),X)
+    A = sigmoid(X_aug %*% theta)
+    A_aug = cbind(rep(1,n),A)
+    f_hat = sigmoid(A_aug %*% beta)
+    
+    # Backward pass
+    dloss_beta = (1/n)*t(A_aug)%*%(f_hat - y)
+    dloss_theta = matrix(rep(NA, (p+1)*q), ncol = q)
+    
+    sum_theta = matrix(rep(0, (p+1)*q), ncol = q)
+    
+    for(i in 1:n)
+    {
+      sum_theta = sum_theta + X_aug[i,]%*%t((f_hat[i] - y[i])*(A[i,]*(1-A[i,]))*beta[-1])   
+    }
+    
+    dloss_theta = sum_theta/n
+    
+    beta  = beta - learn_rate*dloss_beta
+    theta = theta - learn_rate*dloss_theta
+  }   
+    
+  out = list(theta = theta, beta = beta)
+  return(out)
+}  
+```
+
+## -1.2
+```{r, include=T}
+########## Example 1 ########## 
+n = 100
+p = 1
+
+set.seed(1)
+X = as.matrix(runif(n, -2, 2))
+y_prob = sigmoid(2 - 3*X^2)
+y = rbinom(n,1,y_prob)
+
+q = 4
+# Initialize parameters
+object = shallow_net(p,q)
+
+train(object, X, y, learn_rate = .3, n_iter = 6000)
+########## Example 2 ##########
+n = 200
+p = 1
+
+set.seed(1)
+X = as.matrix(runif(n, -2, 2))
+y_prob = sigmoid(3 + X - 3*X^2 + 3*cos(4*X))
+y = rbinom(n,1,y_prob)
+
+q = 8
+# Initialize parameters
+object = shallow_net(p,q)
+
+train(object, X, y, learn_rate = .3, n_iter = 6000)
+```
+
+## Problem 2
+## -2.1
+```{r, include=T}
+n = 100
+p = 1
+
+set.seed(1)
+X = as.matrix(runif(n, -2, 2))
+y_prob = sigmoid(2 - 3*X^2)
+y = rbinom(n,1,y_prob)
+
+q = 4
+# Initialize parameters
+object = shallow_net(p,q)
+
+tmp <- tempfile() # We'll store results of profiling in temporary file
+
+Rprof(tmp) # start profiling
+
+out<-train(object, X, y, learn_rate = .3, n_iter = 6000)
+
+Rprof(NULL) # stop profiling
+
+prof_results <- summaryRprof(tmp) # summarize the results of profiling
+
+# by.self: sorted by time spent in function alone
+head(prof_results$by.self, 10)
+```
+From profile, we can see the running of S3 method train was mostly spent on "t" which performs matrix  transpose.
+
+## -2.2
+```{r, include=T}
+# The matrix X passed has an intercept column (i.e. this is X_aug)
+# The matrix A passed does NOT have an intercept column
+Rcpp::cppFunction(
+" NumericVector compute_gradient_theta(NumericMatrix X,
+                                     NumericVector f_hat,
+                                     NumericVector y,
+                                     NumericVector beta,
+                                     NumericMatrix A) {
+  int q = beta.size() - 1, p = X.ncol(), n = X.nrow(); // Compute q,p, and n
+  NumericMatrix dL_dtheta(p, q); // Matrix with gradient of theta
+  double sum_theta;
+  for(int l = 0; l < q; l++){
+    for(int j = 0; j < p; j++){
+      sum_theta = 0;
+      for(int i = 0; i < n; i++){
+        sum_theta = sum_theta + (f_hat(i) - y(i))*A(i,l)*(1-A(i,l))*beta(l+1)*X(i,j);
+      }
+      dL_dtheta(j,l) = sum_theta/n;
+    }
+  }
+  return dL_dtheta;
+}
+")
+```
+
+## -2.3
+```{r, include=T}
+train_fast <- function(object, ...) UseMethod("train_fast")
+train_fast.shallow_net <- function(object, X, y, learn_rate, n_iter,...){ 
+  if ( !is( object, "shallow_net") ) 
+      stop( "predict.shallow_net requires an object of class 'shallow_net'" )
+  
+  theta_init = object$theta_init
+  beta_init = object$beta_init
+  
+  q = ncol(theta_init)
+  n = nrow(X)
+  p = ncol(X)
+  
+  beta = beta_init
+  theta = theta_init
+  
+  for (it in 1:n_iter)
+  {
+    # Forward pass
+    X_aug = cbind(rep(1,n),X)
+    A = sigmoid(X_aug %*% theta)
+    A_aug = cbind(rep(1,n),A)
+    f_hat = sigmoid(A_aug %*% beta)
+    
+    # Backward pass
+    dloss_beta = (1/n)*t(A_aug)%*%(f_hat - y)
+    
+    dloss_theta = compute_gradient_theta(X_aug, f_hat, y, beta, A)
+    
+    beta  = beta - learn_rate*dloss_beta
+    theta = theta - learn_rate*dloss_theta
+  }   
+    
+  out = list(theta = theta, beta = beta)
+  return(out)
+}  
+```
+
+## -2.4
+```{r, include=T}
+########## Example 1 ########## 
+n = 100
+p = 1
+
+set.seed(1)
+X = as.matrix(runif(n, -2, 2))
+y_prob = sigmoid(2 - 3*X^2)
+y = rbinom(n,1,y_prob)
+
+q = 4
+# Initialize parameters
+object = shallow_net(p,q)
+
+train_1<-train(object, X, y, learn_rate = .3, n_iter = 6000)
+train_1
+train_fast_1<-train_fast(object, X, y, learn_rate = .3, n_iter = 6000)
+train_fast_1
+########## Example 2 ##########
+n = 200
+p = 1
+
+set.seed(1)
+X = as.matrix(runif(n, -2, 2))
+y_prob = sigmoid(3 + X - 3*X^2 + 3*cos(4*X))
+y = rbinom(n,1,y_prob)
+
+q = 8
+# Initialize parameters
+object = shallow_net(p,q)
+
+train_2<-train(object, X, y, learn_rate = .3, n_iter = 6000)
+train_2
+train_fast_2<-train_fast(object, X, y, learn_rate = .3, n_iter = 6000)
+train_fast_2
+```
+**train** and **train_fast** give the same results.
+
+```{r, include=T}
+# Compare their performance
+n = 100
+p = 1
+
+set.seed(1)
+X = as.matrix(runif(n, -2, 2))
+y_prob = sigmoid(2 - 3*X^2)
+y = rbinom(n,1,y_prob)
+
+q = 4
+# Initialize parameters
+object = shallow_net(p,q)
+
+library(microbenchmark)
+results_bench = microbenchmark(
+  method1 = train(object, X, y, learn_rate = .3, n_iter = 6000), 
+  method2 = train_fast(object, X, y, learn_rate = .3, n_iter = 6000),
+  times = 20L 
+)
+results_bench
+
+tmp <- tempfile() # We'll store results of profiling in temporary file
+
+Rprof(tmp) # start profiling
+
+out<-train_fast(object, X, y, learn_rate = .3, n_iter = 6000)
+
+Rprof(NULL) # stop profiling
+
+prof_results <- summaryRprof(tmp) # summarize the results of profiling
+
+# by.self: sorted by time spent in function alone
+head(prof_results$by.self, 10)
+```
+**train_fast** outperforms **train** by decrease running time a lot. Comparing the profiling results of **train** with **train_fast**, we can see train_fast largely reduces the time spent on "t".
+
+\pagebreak
+
+## Code Appendix
+
+```{r, ref.label=knitr::all_labels()[1],echo=TRUE,eval=FALSE}
+```

@@ -1,0 +1,176 @@
+---
+title: "BIOST 561 HW1"
+author: "Lan Shui"
+date: "2022/04/12"
+output:
+  pdf_document
+---
+
+```{r setup, include=FALSE}
+### Setting up the packages, options we'll need:
+library(knitr)
+library(tidyverse)
+library(MASS)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Responses
+
+# Problem 2
+2.1
+
+my_list[["a1"]] returns the list a1.
+
+my_list[["a1"]][["b2"]] returns the list b2 which is an element of list a1.
+
+my_list[["a1"]][["b2"]][["c1"]] returns the c1 which is an element of list b2.
+
+my_list[[c(1,2)]] returns the second element of a1 (a1 is the first element of my_list).
+
+my_list[[c(1,2,1)]] returns the first element of b2 (b2 is the second element of a1).
+
+my_list[[c("a1", "b2")]] returns the list b2 under the list a1.
+
+my_list[[c("a1", "b2", "c1")]] returns the c1 under the list b2.
+
+my_list[["a1"]][["b2"]], my_list[[c(1,2)]] and my_list[[c("a1", "b2")]] are equivalent.
+
+my_list[["a1"]][["b2"]][["c1"]], my_list[[c(1,2,1)]] and my_list[[c("a1", "b2", "c1")]] are equivalent.
+
+2.2
+
+my_list[c("a1", "b2", "c1")] searches elements a1, b2 and c1 in my_list which contains only a1 and a2. It won't search into the nested list under a1. Therefore, it only returns list a1.
+
+my_list[[c("a1", "b2", "c1")]] with double square bracket searches the nested list b2 under a1, and then searches the element c1 under list b2. Therefore, it returns element c1.
+
+my_list[c(1,2)] returns the first and second element under my_list which are a1 and a2.
+
+my_list[[c(1,2)]] with double square bracket searches the second element of the first element of my_list which is b2.
+
+# Problem 3
+```{r, echo=T}
+### -----------------------------------------------------------
+### Reading in the data. 
+visits <- data.frame(patient_id = c(1:5,5),
+                     treatment_id = c("a","b","a","c","a","c"),
+                     n_visits = c(2,1,2,1,3,1))
+patients <- data.frame(patient_id = 1:6, name = LETTERS[1:6], age = rpois(6,50))
+treatments <- data.frame(treatment_id = c("a","b","c"), name = tail(letters,3),
+                         cost = c(3,1000,100))
+```
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 3.1
+rep_index<-c()
+for (i in seq_along(visits$treatment_id)) {
+  rep_index<-c(rep_index,rep(i,visits$n_visits[i]))
+}
+
+X_ids<-visits[rep_index,-3]
+X_ids
+```
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 3.2
+mat<-match(X_ids$patient_id,patients$patient_id)
+X_ids$patient_name<-patients$name[mat]
+X_ids$age<-patients$age[mat]
+
+mat2<-match(X_ids$treatment_id,treatments$treatment_id)
+X_ids$treatment_name<-treatments$name[mat2]
+
+X<-X_ids[,c(-1,-2)]
+X
+```
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 3.3
+X_order<-X[order(X$age),]
+X_order
+```
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 3.4
+### This function's input is treatment name, its output is a data frame with all the
+### hospital visits for that treatment. 
+### You can input "x","y","z" (N.B. you should include the "" for input).
+treat=function(x,X){
+  dat<-X %>% filter(treatment_name==x)
+  return(dat)
+}
+
+treat("x",X)
+```
+
+# Problem 4
+```{r, echo=T}
+### -----------------------------------------------------------
+### Reading in the data.
+data(state) # Load dataset
+head(state.x77)
+```
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 4.1
+class(state.x77)
+typeof(state.x77)
+```
+The data type of the object state.x77 is matrix with every entry being double.
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 4.2
+col_mean <- apply(state.x77, MARGIN=2, FUN=mean)
+col_std <- apply(state.x77, MARGIN=2, FUN=function(x) {sqrt(var(x))})
+rbind(col_mean,col_std)
+```
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 4.3
+state_x77<-as.data.frame(state.x77)
+col_mean2<-sapply(state_x77,FUN = mean)
+col_std2<-sapply(state_x77,FUN=function(x) {sqrt(var(x))})
+rbind(col_mean2,col_std2)
+```
+
+lapply returns a list by applying FUN to each element and sapply is more user-friendly which can return a vector, matrix or an array.
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 4.4
+state_x77$population_density<-state_x77$Population/state_x77$Area
+head(state_x77)
+```
+I think is more efficient when applying this operation (adding a column) to a data frames in R compared to applying this to matrices. Because for data frames, this operation in R means adding a list to the end. But for matrices, this operation in R will enter the numbers to a new column one by one from top to bottom. 
+
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 4.5
+min<-tapply(state_x77$population_density, state.region, min)
+max<-tapply(state_x77$population_density, state.region, max)
+average<-tapply(state_x77$population_density, state.region, mean)
+rbind(min,max,average)
+```
+
+## Problem 5
+```{r, echo=T}
+### -----------------------------------------------------------
+### Q 5
+### x is a vector of real numbers with some NA's values. The replacement function 
+### replaces the NA entries in x with value.
+`modif<-` <- function(x,value){
+  x[is.na(x)]<-value
+  x
+}
+### Test
+x<-c(1,1,1,1,NA,1,NA,NA)
+# replace NA by 2
+x <- `modif<-`(x, 2)
+x
+```

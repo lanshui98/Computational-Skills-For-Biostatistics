@@ -1,0 +1,205 @@
+---
+title: "BIOST 561 Homework 2"
+author: "Lan Shui"
+date: "4/27/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+### Setting up the packages
+library(knitr)
+library(tidyverse)
+library(rigr)
+library(ggplot2)
+library(caret)
+library(cvTools)
+library(MASS)
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Responses 
+## Problem 1.
+## -1.1
+```{r -1.1, include=F}
+### -----------------------------------------------------------
+### -1.1
+# The entire code
+lm_sgd = function(x, y, beta_init = NULL, learn_rate = 0.1, niter = 100, verbose = F, b = 64)
+{
+
+  n = nrow(x)
+  p = ncol(x)-1
+  mse = rep(0,niter)
+  
+  if(nrow(x) != length(y)) stop("Check the dimensions of x and y")
+  if(verbose && p>2) stop("p > 2, -- Plotting not implemented")
+  if(is.null(beta_init)) beta_init = runif(p+1)
+  beta_sgd = beta_init
+  
+  for(j in 1:niter)
+  {
+    folds <- cvFolds(n, K=b)
+    i <- sample(1:b, 1)
+    x_mini <- x[folds$subsets[folds$which == i],] #Set the mini batch
+    y_mini <- y[folds$subsets[folds$which == i]]
+    
+    MSE = mean((y - x%*%beta_sgd)^2)
+    mse[j] = MSE
+    
+    beta_sgd = beta_sgd - learn_rate*(-2*b/n)*(t(x_mini)%*%(y_mini-x_mini%*%beta_sgd))
+    
+    if(verbose)
+    {
+      print(MSE)
+    
+      x1_grid = seq(0,1,length.out = 100)
+      y_grid_hat =  cbind(rep(1,100),x1_grid)%*%beta_sgd
+      
+      plot(x[,2],y)
+      lines(x1_grid,y_grid_hat)
+      Sys.sleep(0.1)
+    }
+  }
+  out <- list(one=mse, two=beta_sgd)
+  return(out)
+}
+
+# for test
+# n = 30
+# p = 1
+# 
+# beta = rep(1,p+1)
+# 
+# x = cbind(rep(1,n),matrix(runif(n*p,0,1),n,p))
+# epsilon = rnorm(n,0,.1)
+# 
+# y = x%*%beta + epsilon
+# 
+# lm_sgd(x, y)
+```
+
+The main change I made to the lm_gd code is that I add a new parameter b to the input of the function. In the iteration part, under every iteration, I randomly split the dataset into b mini batches, randomly choose one to calculate the gradient of the loss function and then update the beta.
+
+## -1.2
+
+```{r -1.2, echo=F, fig.width=5, fig.height=5, fig.cap="Scatterplot of number of iteration versus loss function for both lm_gd and lm_sgd."}
+### -----------------------------------------------------------
+### -1.2
+lm_gd = function(x, y, beta_init = NULL, learn_rate = 0.1, niter = 100, verbose = F)
+{
+
+  n = nrow(x)
+  p = ncol(x)-1
+  mse = rep(0,niter)
+  
+  if(nrow(x) != length(y)) stop("Check the dimensions of x and y")
+  if(verbose && p>2) stop("p > 2, -- Plotting not implemented")
+  
+  if(is.null(beta_init)) beta_init = runif(p+1)
+  
+  beta_gd = beta_init
+  
+  for(j in 1:niter)
+  {
+    MSE_new = mean((y - x%*%beta_gd)^2)
+    mse[j] = MSE_new
+    
+    beta_gd = beta_gd - learn_rate*(-2/n)*(t(x)%*%(y-x%*%beta_gd))
+    
+    if(verbose)
+    {
+      print(MSE_new)
+    
+      x1_grid = seq(0,1,length.out = 100)
+      y_grid_hat =  cbind(rep(1,100),x1_grid)%*%beta_gd
+      
+      plot(x[,2],y)
+      lines(x1_grid,y_grid_hat)
+      Sys.sleep(0.1)
+    }
+  }
+  out <- list(one=mse, two=beta_gd)
+  return(out)
+}
+
+n = 200
+p = 1
+
+beta = rep(1,p+1)
+
+x = cbind(rep(1,n),matrix(runif(n*p,0,1),n,p))
+epsilon = rnorm(n,0,.1)
+
+y = x%*%beta + epsilon
+
+mse_sgd=lm_sgd(x, y)$one
+mse_gd=lm_gd(x, y)$one
+niter=1:100
+
+plot(niter,mse_sgd,col = "red",ylab="value of loss function",type = "b")
+points(niter,mse_gd,col = "blue",type = "b")
+legend("topright", legend=c("mse_sgd", "mse_gd"), text.col = c("red","blue"))
+```
+
+From the plot, we can see the reason for the technique is called stochastic gradient descent is that the value of loss function along the number of iteration is not always decreasing. It has some stochastic increase at some iteration but its overall tendency is decreasing.
+
+## -1.3
+```{r -1.3, echo=F}
+### -----------------------------------------------------------
+### -1.3
+library(purrr)
+# I will only perform on dimension 2 for simplicity
+# Generate a list of 20 random vectors beta_init
+beta_init = map(1:20,~runif(2))
+# true dataset
+n = 200
+p = 1
+
+beta = rep(1,p+1)
+
+x = cbind(rep(1,n),matrix(runif(n*p,0,1),n,p))
+epsilon = rnorm(n,0,.1)
+
+y = x%*%beta + epsilon
+# Run lm_sgd and output estimation errors
+beta_sgd = map(beta_init,lm_sgd,x=x,y=y)
+# extract the second element
+beta_sgd = map(beta_sgd,function(x) x[[2]])
+# compute the estimation errors
+est_e = map(beta_sgd,function(x) (x[1]-1)^2+(x[2]-1)^2 )
+est_e = unlist(est_e)
+est_e
+```
+
+## Problem 2.
+## -2.1
+```{r -2.1, echo=F}
+### -----------------------------------------------------------
+### -2.1
+head(anorexia)
+rag = with(anorexia,range(c(Prewt,Postwt)))
+par(mfrow=c(1,2))
+with(anorexia,hist(Prewt,xlim=rag))
+with(anorexia,hist(Postwt,xlim=rag))
+```
+
+## -2.2
+```{r -2.2, echo=F}
+### -----------------------------------------------------------
+### -2.2
+anorexia3 = as.data.frame(matrix(nrow=nrow(anorexia),ncol=5))
+anorexia3[,1] = anorexia$Treat
+anorexia3[,2] = with(anorexia,round(Prewt))
+anorexia3[,3] = with(anorexia,round(Postwt))
+# an indicator column for cases that gained more than 10% in weight
+anorexia3[,4] = with(anorexia,ifelse((Postwt-Prewt)/Prewt>0.1,1,0))
+# an indicator column for cases that lost more than 10% in weight
+anorexia3[,5] = with(anorexia,ifelse((Postwt-Prewt)/Prewt<(-0.1),1,0))
+colnames(anorexia3) <- c("Treat","Prewt(rounded)","Postwt(rounded)","+10%","-10%")
+head(anorexia3)
+```
+
+## Code Appendix
+
+```{r, ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+```
